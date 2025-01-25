@@ -1,148 +1,163 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const multer = require('multer');
-const { GridFsStorage } = require('multer-gridfs-storage');
-const Grid = require('gridfs-stream');
-const path = require('path');
-const cors = require('cors');
-
-
-app.use(cors());
-
+const express = require("express");
+const { MongoClient } = require("mongodb");
+const multer = require("multer");
+const cors = require("cors");
+const path = require("path");
+const fs = require("fs");
+const { ObjectId } = require("mongodb"); 
+require("dotenv").config({ path: "./Config.env" });
+require("dotenv").config({ path: ".env" });
 
 const app = express();
-const PORT = 5000;
 
-// MongoDB connection
-const mongoURI = 'mongodb+srv://name1:9ptC5djlwYCtLNv1@cluster0.kcuuj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-const conn = mongoose.createConnection(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
+app.use(cors({
 
-let gfs;
-conn.once('open', () => {
-  gfs = Grid(conn.db, mongoose.mongo);
-  gfs.collection('uploads');
+  origin: ['http://localhost:5173', 'http://localhost:5174'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type']
+}));
+
+app.use(express.json());
+
+app.use('/images', express.static(path.join(__dirname, 'images')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+// app.use('/images', express.static('images'));
+
+
+
+
+const directories = ["uploads", "images"];
+directories.forEach((dir) => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir);
+  }
 });
 
 
-const storage = new GridFsStorage({
-  url: mongoURI,
-  file: (req, file) => {
-    
-    if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
-      return null; 
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (file.fieldname === "imageFile") {
+      cb(null, "images/");
+    } else if (file.fieldname === "modelFile") {
+      cb(null, "uploads/");
     }
-    return {
-      filename: `${Date.now()}-${file.originalname}`,
-      bucketName: 'uploads',
-    };
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + path.extname(file.originalname)); // Unique filename
   },
 });
 
 const upload = multer({
-  storage,
+  storage: storage,
   fileFilter: (req, file, cb) => {
-    
-    if (file.mimetype !== 'image/jpeg' && file.mimetype !== 'image/png') {
-      return cb(new Error('Only JPG and PNG files are allowed!'), false);
-    }
-    cb(null, true); 
-  },
-});
-
-
-app.post('/upload', upload.single('file'), (req, res) => {
-  res.json({ file: req.file });
-});
-
-
-app.get('/files/:filename', (req, res) => {
-  gfs.files.findOne({ filename: req.params.filename }, (err, file) => {
-    if (!file || file.length === 0) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-   
-    if (file.contentType === 'image/jpeg' || file.contentType === 'image/png') {
-      const readStream = gfs.createReadStream(file.filename);
-      readStream.pipe(res);
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.glb', '.gltf'];
+    if (allowedExtensions.includes(path.extname(file.originalname).toLowerCase())) {
+      cb(null, true);
     } else {
-      res.status(400).json({ error: 'Not an image file' });
+      cb(new Error("Only images (.jpg, .jpeg, .png) and 3D models (.glb, .gltf) are allowed."));
     }
-  });
+  }
+});
+
+// MongoDB connection
+const DB = process.env.ATLAS_URI;
+const client = new MongoClient(DB);
+
+async function connectDB() {
+  try {
+    await client.connect();
+    console.log("Connected to MongoDB");
+  } catch (error) {
+    console.error("Error connecting to MongoDB:", error);
+    process.exit(1);
+  }
+}
+connectDB();
+
+// Serve static files from respective directories
+app.use('/uploads', express.static('uploads'));
+app.use('/images', express.static('images'));
+
+
+app.post("/upload-model", upload.fields([
+  { name: "imageFile", maxCount: 1 },
+  { name: "modelFile", maxCount: 1 }
+]), async (req, res) => {
+  const { title, description, beds, dimensions, location, price } = req.body;
+ const imageFile = req.files.imageFile ? req.files.imageFile[0] : null;
+  const modelFile = req.files.modelFile ? req.files.modelFile[0] : null;
+
+  
+  if (!title || !description || !beds || !dimensions || !location || !price || !imageFile || !modelFile) {
+    return res.status(400).json({ error: "All fields, including image and model files, are required." });
+  }
+
+  try {
+   
+    const result = await client.db("3Dmodeldb").collection("upload-model").insertOne({
+      title,
+      description,
+      beds,
+      dimensions,
+      location,
+      price,
+      imagePath: `/images/${imageFile.filename}`,
+      modelPath: `/uploads/${modelFile.filename}`,
+      imageOriginalName: imageFile.originalname,
+      modelOriginalName: modelFile.originalname,
+      uploadDate: new Date(),
+    });
+
+    res.status(200).json({
+      message: "Image and model uploaded successfully",
+      id: result.insertedId,
+      imagePath: `/images/${imageFile.filename}`,
+      modelPath: `/uploads/${modelFile.filename}`,
+    });
+  } catch (e) {
+    console.error("Error saving metadata:", e);
+    res.status(500).json({ error: "Error saving metadata" });
+  }
 });
 
 
-app.get('/', (req, res) => {
-  res.send('server started successfully');
+app.get("/models", async (req, res) => {
+  try {
+    const models = await client.db("3Dmodeldb").collection("upload-model").find({}).toArray();
+    res.json(models);
+  } catch (e) {
+    console.error("Error fetching models:", e);
+    res.status(500).json({ error: "Error fetching models" });
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+app.get("/models/:id", async (req, res) => {
+  try {
+    const modelId = req.params.id;
+    const model = await client
+      .db("3Dmodeldb")
+      .collection("upload-model")
+      .findOne({ _id: new ObjectId(modelId) }); 
+
+    if (!model) {
+      return res.status(404).json({ error: "Model not found" });
+    }
+
+    res.json(model);
+  } catch (e) {
+    console.error("Error fetching model:", e);
+    res.status(500).json({ error: "Error fetching model" });
+  }
 });
 
 
 
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: err.message || "Something went wrong!" });
+});
 
-
-
-
-
-// const express = require('express');
-// const mongoose = require('mongoose');
-// const multer = require('multer');
-// const { GridFsStorage } = require('multer-gridfs-storage');
-// const Grid = require('gridfs-stream');
-// const path = require('path');
-
-// const app = express();
-// const PORT = 5000;
-
-
-// // MongoDB connection
-// const mongoURI = 'mongodb+srv://name1:9ptC5djlwYCtLNv1@cluster0.kcuuj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-// const conn = mongoose.createConnection(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true });
-
-// let gfs;
-// conn.once('open', () => {
-//   gfs = Grid(conn.db, mongoose.mongo);
-//   gfs.collection('uploads');
-// });
-
-// // Storage setup for Multer + GridFS
-// const storage = new GridFsStorage({
-//   url: mongoURI,
-//   file: (req, file) => {
-//     return {
-//       filename: `${Date.now()}-${file.originalname}`,
-//       bucketName: 'uploads',
-//     };
-//   },
-// });
-
-// const upload = multer({ storage });
-
-// // Route for uploading files
-// app.post('/upload', upload.single('file'), (req, res) => {
-//   res.json({ file: req.file });
-// });
-
-// // Route for fetching files
-// app.get('/files/:filename', (req, res) => {
-//   gfs.files.findOne({ filename: req.params.filename }, (err, file) => {
-//     if (!file || file.length === 0) {
-//       return res.status(404).json({ error: 'File not found' });
-//     }
-
-//     // Check if it's a 3D model (.glb)
-//     if (file.contentType === 'model/gltf-binary') {
-//       const readStream = gfs.createReadStream(file.filename);
-//       readStream.pipe(res);
-//     } else {
-//       res.status(400).json({ error: 'Not a 3D model file' });
-//     }
-//   });
-// });
-
-// app.listen(PORT, () => {
-//   console.log(`Server running on http://localhost:${PORT}`);
-// });
+// Start the server
+app.listen(3000, () => {
+  console.log("Server running on port 3000");
+});
