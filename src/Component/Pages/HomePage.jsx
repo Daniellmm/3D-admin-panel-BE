@@ -36,7 +36,7 @@ const HomePage = () => {
     formData.append("price", price);
 
     // Send request with FormData
-    await axios.post("https://10e4-102-89-84-55.ngrok-free.app/upload-model", formData, {
+    await axios.post("https://threed-admin-panel-be-1.onrender.com/upload-model", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
