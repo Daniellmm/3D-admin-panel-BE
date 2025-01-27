@@ -4,7 +4,7 @@ const multer = require("multer");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const { ObjectId } = require("mongodb"); 
+const { ObjectId } = require("mongodb");
 require("dotenv").config({ path: "./Config.env" });
 require("dotenv").config({ path: ".env" });
 
@@ -81,20 +81,28 @@ app.use('/images', express.static('images'));
 
 
 app.post("/upload-model", upload.fields([
-  { name: "imageFile", maxCount: 1 },
+  { name: "imageFile", maxCount: 10 },
   { name: "modelFile", maxCount: 1 }
 ]), async (req, res) => {
   const { title, description, beds, dimensions, location, price } = req.body;
- const imageFile = req.files.imageFile ? req.files.imageFile[0] : null;
+  //  const imageFile = req.files.imageFile ? req.files.imageFile[0] : null;
+  const imageFile = req.files['imageFile'];
+
   const modelFile = req.files.modelFile ? req.files.modelFile[0] : null;
 
-  
+
   if (!title || !description || !beds || !dimensions || !location || !price || !imageFile || !modelFile) {
     return res.status(400).json({ error: "All fields, including image and model files, are required." });
   }
 
+  // Process image files to store their paths
+  const imagePath = imageFile.map(imageFile => ({
+    path: `/images/${imageFile.filename}`,
+    originalName: imageFile.originalname
+  }));
+
   try {
-   
+
     const result = await client.db("3Dmodeldb").collection("upload-model").insertOne({
       title,
       description,
@@ -102,17 +110,19 @@ app.post("/upload-model", upload.fields([
       dimensions,
       location,
       price,
-      imagePath: `/images/${imageFile.filename}`,
+      imagePath,
       modelPath: `/uploads/${modelFile.filename}`,
-      imageOriginalName: imageFile.originalname,
       modelOriginalName: modelFile.originalname,
       uploadDate: new Date(),
+      // imagePath: `/images/${imageFile.filename}`,
+      // imageOriginalName: imageFile.originalname,
     });
 
     res.status(200).json({
       message: "Image and model uploaded successfully",
       id: result.insertedId,
-      imagePath: `/images/${imageFile.filename}`,
+      // imagePath: `/images/${imageFile.filename}`,
+      imagePath,
       modelPath: `/uploads/${modelFile.filename}`,
     });
   } catch (e) {
@@ -138,7 +148,7 @@ app.get("/models/:id", async (req, res) => {
     const model = await client
       .db("3Dmodeldb")
       .collection("upload-model")
-      .findOne({ _id: new ObjectId(modelId) }); 
+      .findOne({ _id: new ObjectId(modelId) });
 
     if (!model) {
       return res.status(404).json({ error: "Model not found" });

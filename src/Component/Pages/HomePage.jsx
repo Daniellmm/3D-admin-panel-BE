@@ -5,7 +5,7 @@ import SideBar from '../SideBar';
 
 const HomePage = () => {
   
-  const [imageFile, setImageFile] = useState(null);
+  const [imageFile, setImageFile] = useState([]);
   const [modelFile, setModelFile] = useState(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -17,7 +17,7 @@ const HomePage = () => {
 
 
  const handleFileUpload = async () => {
-  if (!imageFile || !modelFile || !title || !description || !beds || !dimensions || !location || !price) {
+   if (!imageFile || !modelFile || !title || !description || !beds || !dimensions || !location || !price) {
     alert("Please fill in all fields and upload files.");
     return;
   }
@@ -26,7 +26,11 @@ const HomePage = () => {
   try {
     // Create FormData object
     const formData = new FormData();
-    formData.append("imageFile", imageFile); // Name must match the field name in the Multer configuration
+
+    for (let i = 0; i < imageFile.length; i++) {
+      formData.append(`imageFile`, imageFile[i]); // Append each image file
+    }
+    // formData.append("imageFile", imageFile); 
     formData.append("modelFile", modelFile);
     formData.append("title", title);
     formData.append("description", description);
@@ -37,6 +41,7 @@ const HomePage = () => {
 
     // Send request with FormData
     await axios.post("https://threed-admin-panel-be-1.onrender.com/upload-model", formData, {
+    // await axios.post("http://localhost:3000/upload-model", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
@@ -144,7 +149,7 @@ const HomePage = () => {
               </div>
             </div>
             
-            <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files[0])} />
+            <input multiple type="file" accept="image/*" onChange={(e) => setImageFile([...e.target.files])} />
             <input type="file" onChange={(e) => setModelFile(e.target.files[0])} />
 
             <div>
