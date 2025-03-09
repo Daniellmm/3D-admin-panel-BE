@@ -13,7 +13,7 @@ const app = express();
 app.use(cors({
 
   // origin: ['http://localhost:5173', 'http://localhost:5174'],
-  origin: ['https://d-project-eb876.web.app', 'https://client-side-3d-models.web.app', 'https://3ds-seven.vercel.app', 'http://localhost:5173'],
+  origin: ['https://d-project-eb876.web.app', 'https://client-side-3d-models.web.app', 'https://3ds-seven.vercel.app', 'http://localhost:5173', 'http://localhost:5174'],
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
